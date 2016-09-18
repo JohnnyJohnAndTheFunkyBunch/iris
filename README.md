@@ -55,12 +55,15 @@ Using the CURL program of your choice. Send a POST request to that URL you had a
 
 This master node breaks down the request into pieces if the source file is too large for one executioner to manage. It will also host a web page and a WebSocket server so that we have an interface to test our code.
 
-On the terminal run the following commands:
+First modify `cred.js` and enter your secret keys for your AWS account.
+
+Then, on the terminal run the following commands:
 ```
 > cd webapp/
 > npm install
 > node server.js
 ```
+
 
 Then the web page should look something like this:
 ![alt text](Documentation/images/image14.png)
