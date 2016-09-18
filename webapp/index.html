@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+.link {
+  stroke: #000;
+  stroke-width: 1.5px;
+}
+
+.node {
+  fill: #000;
+  stroke: #fff;
+  stroke-width: 1.5px;
+}
+
+.form-control {
+  font-family: "courier new";
+}
+
+td {
+  cursor:pointer;
+}
+
+#result {
+  height: 425px;
+  overflow: scroll;
+}
+
+
+</style>
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
+<body>
+<div class="row">
+  <div class="col-md-4" >
+    <h1>Filter Function</h1>
+    <form id="functionForm">
+        <textarea class="form-control" id="filter-fn" rows="20">
+function(element)
+{
+    return true;
+}
+</textarea>
+        <button type="submit" class="btn btn-default">Submit</button>
+    </form>
+  </div>
+  <div class="col-md-8" >
+    <h1 id="keyname">Key Name</h1>
+    <div id="result"></div>
+  </div>
+</div>
+<div class="row">
+  <div class="col-md-12" id="s3objects">
+    <h1>Bucket</h1>
+    <table class="table table-hover">
+      <thead>
+         <tr>
+           <th>Key</th>
+           <th>Last Modified</th>
+           <th>Size</th>
+         </tr>
+      </thead>
+      <tbody id="s3table">
+      </tbody>
+    </table>
+  </div>
+</div>
+</body>
+<script src="https://cdn.socket.io/socket.io-1.2.0.js"></script>
+<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+<script>
+      $('#s3table').on('click', '.clickable-row', function(event) {
+        $(this).addClass('active').siblings().removeClass('active');
+        var key = $(this).children().first().text();
+        $("#keyname").text(key);
+        console.log(key);
+        socket.emit('key', key);
+      });
+      var socket = io('http://54.70.11.109:3000/');
+      $('#functionForm').submit(function(event){
+        event.preventDefault();
+        myFn = "("+$("#filter-fn")[0].value+")";
+        socket.emit('filter', myFn);
+      });
+      socket.on('s3objects', function(msg){
+	$("#s3table tr").remove(); 
+        msg = msg.Contents;
+        for (i = 0; i < msg.length; i++) {
+          $('#s3table').append("<tr class='clickable-row'><td>"+msg[i].Key+"</td><td>"+msg[i].LastModified+"</td><td>"+msg[i].Size+"</td>");
+        }
+      });
+      socket.on('value', function(msg){
+        $("#result").empty().append(msg);
+      });
+      socket.on('connect', function() {
+        console.log("worked");
+      });
+   
+</script>
