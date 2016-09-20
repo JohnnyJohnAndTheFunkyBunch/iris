@@ -80,7 +80,8 @@ function(element)
       $('#functionForm').submit(function(event){
         event.preventDefault();
         myFn = "("+$("#filter-fn")[0].value+")";
-        socket.emit('filter', myFn);
+        mykey = $("#keyname").text();
+        socket.emit('filter', {"function":myFn, "key":mykey});
       });
       socket.on('s3objects', function(msg){
 	$("#s3table tr").remove(); 
