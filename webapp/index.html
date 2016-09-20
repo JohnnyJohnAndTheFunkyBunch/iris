@@ -91,7 +91,13 @@ function(element)
         }
       });
       socket.on('value', function(msg){
-        $("#result").empty().append(msg);
+        msg = msg.split("\n");
+        console.log(msg);
+        $("#result").empty();
+        for(var i = 0; i < msg.length; i++) {
+          $("#result").append(msg[i]);
+          $("#result").append('<br/><div style="height:1px;background-color:#eae1ff;width:100%;"></div>');
+        }
       });
       socket.on('connect', function() {
         console.log("worked");

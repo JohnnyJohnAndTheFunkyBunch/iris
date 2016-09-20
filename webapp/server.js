@@ -14,7 +14,7 @@ var pieceSize = 1024 * 1024 * 5;
 
 //////////////// MULTI UPLOAD STUFF
 
-function completeMultipartUpload(s3, doneParams) {
+function completeMultipartUpload(s3, doneParams, startTime) {
   s3.completeMultipartUpload(doneParams, function(err, data) {
     if (err) {
       console.log("An error occurred while completing the multipart upload");
@@ -27,38 +27,6 @@ function completeMultipartUpload(s3, doneParams) {
   });
 }
 
-function uploadPart(s3, multipart, partParams, tryNum) {
-  var tryNum = tryNum || 1;
-  s3.uploadPart(partParams, function(multiErr, mData) {
-    if (multiErr){
-      console.log('multiErr, upload part error:', multiErr);
-      if (tryNum < maxUploadTries) {
-        console.log('Retrying upload of part: #', partParams.PartNumber)
-        uploadPart(s3, multipart, partParams, tryNum + 1);
-      } else {
-        console.log('Failed uploading part: #', partParams.PartNumber)
-      }
-      return;
-    }
-    multipartMap.Parts[this.request.params.PartNumber - 1] = {
-      ETag: mData.ETag,
-      PartNumber: Number(this.request.params.PartNumber)
-    };
-    console.log("Completed part", this.request.params.PartNumber);
-    console.log('mData', mData);
-    if (--numPartsLeft > 0) return; // complete only when all parts uploaded
-
-    var doneParams = {
-      Bucket: bucket,
-      Key: fileKey,
-      MultipartUpload: multipartMap,
-      UploadId: multipart.UploadId
-    };
-
-    console.log("Completing upload...");
-    completeMultipartUpload(s3, doneParams);
-  });
-}
 
 ///////////////////////////////
 
@@ -76,6 +44,7 @@ io.on('connection', function(socket){
     }
   });
   socket.on('filter', function(fn) {
+    var startTime = new Date();
     console.log(fn.key);
     myparams = {Bucket: 'cs499rbucket', Key: fn.key}
     mylength = 0;
@@ -85,49 +54,87 @@ io.on('connection', function(socket){
         console.log(err. err.stack);
       }
       else {
+	var multipartMap = {
+	    Parts: []
+	};
         mylength = parseInt(data.ContentLength)
 	pieces = Math.ceil(mylength/pieceSize); 
 
         var partNum = 0;
 
+        function sendLambdaRequest(myJson, numTry) {
+            if (numTry > 3) {
+              return;
+            }
+            request.post(
+                'https://tm8k880tf3.execute-api.us-west-2.amazonaws.com/prod/s3grab',
+                { json: myJson },
+                function (error, response, body) {
+                    if (!error && response.statusCode == 200) {
+                        if (body.errorMessage) {
+                          console.log(body);
+                          return sendLambdaRequest(myJson, numTry + 1);
+                        }
+                        console.log("============== BODY ===========");
+                        console.log(body);
+                        console.log("============== END BODY ===========");
+                        console.log("MyEtag: " + body.ETag);
+                        //console.log(Object.keys(body));
+                        console.log("Part: " + body.Part);
+                        multipartMap.Parts[body.Part-1] = {
+                          ETag: body.ETag,
+                          PartNumber: body.Part
+                        };
+                        console.log(multipartMap.Parts[body.Part-1]);
+                        piecesCompleted += 1;
+                        console.log("PIECESCOmpleted: " + piecesCompleted);
+                        if (piecesCompleted == pieces) {
+                          console.log("Complete");
+                          var doneParams = {
+                            Bucket: 'cs499rbucket',
+                            Key: fn.key + "_filtered",
+                            MultipartUpload: multipartMap,
+                            UploadId: myUploadId
+                          };
+                          console.log("========== DONE PARAMS =======");
+                          console.log(doneParams);
+                          console.log("========== END DONE PARAMS =======");
+                          completeMultipartUpload(s3, doneParams, startTime);
+                        }
+                    } else {
+                        console.log("ERROR");
+                        console.log("Part" + body.Part );
+                    }
+                }
+            );
+        }
+
         multiPartParams = {
           Bucket: 'cs499rbucket',
-          key : fn.Key,
+          Key : fn.key + "_filtered"
           //ContentType: 'application/octet-stream'
         }
-        myUploadId = "";
+	console.log("My Key: " + fn.key);
+        var myUploadId = "";
         s3.createMultipartUpload(multiPartParams, function(mpErr, multipart){
           if (mpErr) { console.log('Error!', mpErr); return; }
           console.log("Got upload ID", multipart.UploadId);
-          myUploadId = UploadId; 
-        });
+          myUploadId = multipart.UploadId; 
 
-        console.log("PIECES: " + pieces);
-        piecesCompleted = 0;
-        for (i = 0 ; i < pieces ; i++) {
-          range1 = pieceSize * i;
-          range2 = pieceSize * (i + 1) - 1;
-          range1 = range1.toString()
-          range2 = range2.toString()
-          request.post(
-              'https://tm8k880tf3.execute-api.us-west-2.amazonaws.com/prod/s3grab',
-              { json: { function: fn.function, range: "bytes=" + range1 + "-" + range2, part: i, key: fn.key, uploadId: myUploadId} },
-              function (error, response, body) {
-                  if (!error && response.statusCode == 200) {
-                      console.log(body);
-                      piecesCompleted += 1;
-                      console.log("PIECESCOmpleted: " + piecesCompleted);
-                      if (piecesCompleted == pieces) {
-                        console.log("Complete");
-                        // merge that shit
-                      }
-                  } else {
-                      console.log("ERROR");
-                      console.log("Part" + i+1 );
-                  }
-              }
-          );
-        }
+          console.log("PIECES: " + pieces);
+          piecesCompleted = 0;
+          for (var i = 0 ; i < pieces ; i++) {
+            range1 = pieceSize * i;
+            range2 = Math.min(pieceSize * (i + 1) - 1, mylength);
+            range1 = range1.toString()
+            range2 = range2.toString()
+            myJson = { function: fn.function, range: "bytes=" + range1 + "-" + range2, part: i+1, key: fn.key, uploadId: myUploadId, output: fn.key + "_filtered"};
+            sendLambdaRequest(myJson, 0);
+            console.log("========= JSON ========");
+            console.log(myJson);
+            console.log("========= END JSON ========");
+          }
+        });
       }
     });
 /*
